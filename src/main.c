@@ -19,13 +19,20 @@
 #include "web/script.js.asset.h"
 #include "web/leaflet.permalink.min.js.asset.h"
 
+#include "guide.md.asset.h"
+
 int png;
-static int min_dist = 128, ppt = 32;
+static int min_dist = 128, ppt = 32, num_threads = 4;
 static char* save_name = NULL; // TODO
 static char* fac_base  = NULL; // defaults to "$HOME/.factorio"
 static char* fac_bin   = "/usr/bin/factorio";
 
 #define EXT (png ? "png" : "jpg")
+
+static void show_guide() {
+	puts(guide_md_asset);
+	exit(0);
+}
 
 static struct opt_section options = {
 	OPT_ITEMS {
@@ -34,12 +41,14 @@ static struct opt_section options = {
 		OPT_HELP("Options:"),
 		OPT_HELP_OPTION,
 
-		OPT_BOOL  ('p', "png"      , png       , 0                 , "\tUse PNGs instead of JPGs"),
-		OPT_STRING('s', "save-name", save_name , OPT_REQUIRED_VALUE, "\tSpecify save name"),
-		OPT_STRING('b', "fac-base" , fac_base  , OPT_REQUIRED_VALUE, "\tOverride .factorio directory path"),
-		OPT_STRING('e', "fac-bin"  , fac_bin   , OPT_REQUIRED_VALUE, "\tOverride factorio executable location"),
-		OPT_INT   ('d', "min-dist" , min_dist  , OPT_REQUIRED_VALUE, "\tMinimum distance from chunk center to any structure to include this chunk in the map"),
-		OPT_INT   (0  , "ppt"      , ppt       , OPT_REQUIRED_VALUE, "\tPixels per factorio-tile"),
+		OPT_BOOL  ('p', "png"        , png        , 0                 , "\tUse PNGs instead of JPGs"),
+		OPT_STRING('s', "save-name"  , save_name  , OPT_REQUIRED_VALUE, "\tSpecify save name"),
+		OPT_STRING('b', "fac-base"   , fac_base   , OPT_REQUIRED_VALUE, "\tOverride .factorio directory path"),
+		OPT_STRING('e', "fac-bin"    , fac_bin    , OPT_REQUIRED_VALUE, "\tOverride factorio executable location"),
+		OPT_INT   ('d', "min-dist"   , min_dist   , OPT_REQUIRED_VALUE, "\tMinimum distance from chunk center to any structure to include this chunk in the map"),
+		OPT_INT   ('t', "ppt"        , ppt        , OPT_REQUIRED_VALUE, "\tPixels per factorio-tile"),
+		OPT_INT   ('n', "num-threads", num_threads, OPT_REQUIRED_VALUE, "\tNumber of threads to use"),
+		OPT_CALL  ('g', "guide"      , show_guide , NULL, OPT_NO_VALUE, "\tShow the guide"),
 
 		OPT_END
 	}
@@ -51,10 +60,17 @@ void parse_args(char* argv[]) {
 	if (fac_base == NULL)
 		fac_base = xasprintf("%s/.factorio", getenv("HOME"));
 
-	msg(L_DEBUG, "argparse: png      : %d", png       );
-	msg(L_DEBUG, "argparse: save_name: %s", save_name );
-	msg(L_DEBUG, "argparse: fac_base : %s", fac_base  );
-	msg(L_DEBUG, "argparse: fac_bin  : %s", fac_bin   );
+	if (fac_base[0] != '/')
+		msg(L_WARN, "fac-base path might have to be absolute.");
+
+	msg(L_DEBUG, "argparse: png        : %d", png        );
+	msg(L_DEBUG, "argparse: save_name  : %s", save_name  );
+	msg(L_DEBUG, "argparse: fac_base   : %s", fac_base   );
+	msg(L_DEBUG, "argparse: fac_bin    : %s", fac_bin    );
+	msg(L_DEBUG, "argparse: fac_bin    : %s", fac_bin    );
+	msg(L_DEBUG, "argparse: min-dist   : %d", min_dist   );
+	msg(L_DEBUG, "argparse: ppt        : %d", ppt        );
+	msg(L_DEBUG, "argparse: num-threads: %d", num_threads);
 
 	if (save_name == NULL)
 		msg(L_INFO, "No save name provided. You will have to load the save manually.");
@@ -110,7 +126,6 @@ int main(int argc UNUSED, char* argv[]) {
 		char* map_info_json = xasprintf("%s/map_info.json", ff_dir);
 		char* map_info_js   = xasprintf("%s/map_info.js"  , ff_dir);
 		mapinfo(map_info_json, &maxx, &maxy, &minx, &miny);
-		printf("%d %d %d %d\n", maxx, maxy, minx, miny);
 
 		// copy the json content into a js file with string variable of this content
 		FILE* json = fopen(map_info_json, "r");
@@ -133,7 +148,7 @@ int main(int argc UNUSED, char* argv[]) {
 		create_blank(blank_file, ppt*32, false);
 
 		struct worker_pool pool = {
-			.num_threads = 16,
+			.num_threads = num_threads,
 			.stack_size = 65536,
 		};
 		worker_pool_init(&pool);
